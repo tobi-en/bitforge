@@ -401,3 +401,99 @@
     )
   )
 )
+
+;; VIRTUAL WORLD MANAGEMENT
+
+;; Create new gaming world
+(define-public (create-game-world
+    (name (string-ascii 50))
+    (description (string-ascii 200))
+    (entry-requirement uint)
+  )
+  (let ((world-id (+ (var-get total-worlds) u1)))
+    ;; Authorization and validation
+    (asserts! (is-protocol-admin tx-sender) ERR-NOT-AUTHORIZED)
+    (asserts! (is-valid-name name) ERR-INVALID-NAME)
+    (asserts! (is-valid-description description) ERR-INVALID-DESCRIPTION)
+    (asserts! (>= entry-requirement u0) ERR-INVALID-INPUT)
+    ;; Create world entry
+    (map-set game-worlds { world-id: world-id } {
+      name: name,
+      description: description,
+      entry-requirement: entry-requirement,
+      active-players: u0,
+      total-rewards: u0,
+    })
+    (var-set total-worlds world-id)
+    (ok world-id)
+  )
+)
+
+;; LEADERBOARD & SCORING SYSTEM
+
+;; Update player's game score
+(define-public (update-player-score
+    (player principal)
+    (new-score uint)
+  )
+  (let ((current-stats (unwrap! (map-get? leaderboard { player: player }) ERR-PLAYER-NOT-FOUND)))
+    ;; Authorization and validation
+    (asserts! (is-protocol-admin tx-sender) ERR-NOT-AUTHORIZED)
+    (asserts! (is-valid-principal player) ERR-INVALID-INPUT)
+    (asserts! (and (>= new-score u0) (<= new-score u10000)) ERR-INVALID-SCORE)
+    ;; Update leaderboard entry
+    (map-set leaderboard { player: player }
+      (merge current-stats {
+        score: new-score,
+        games-played: (+ (get games-played current-stats) u1),
+      })
+    )
+    (ok true)
+  )
+)
+
+;; BITCOIN REWARD DISTRIBUTION SYSTEM
+
+;; Distribute Bitcoin rewards to top players
+(define-public (distribute-bitcoin-rewards)
+  (let ((top-players (get-top-players)))
+    (asserts! (is-protocol-admin tx-sender) ERR-NOT-AUTHORIZED)
+    ;; Process reward distribution
+    (try! (fold distribute-reward (filter is-valid-reward-candidate top-players)
+      (ok true)
+    ))
+    (ok true)
+  )
+)
+
+;; Validate if player qualifies for rewards
+(define-private (is-valid-reward-candidate (player principal))
+  (match (map-get? leaderboard { player: player })
+    stats (and
+      (> (get score stats) u0)
+      (is-valid-principal player)
+    )
+    false
+  )
+)
+
+;; Process individual reward distribution
+(define-private (distribute-reward
+    (player principal)
+    (previous-result (response bool uint))
+  )
+  (match (map-get? leaderboard { player: player })
+    player-stats (let ((reward-amount (calculate-reward (get score player-stats))))
+      (if (and (is-ok previous-result) (> reward-amount u0))
+        (begin
+          (map-set leaderboard { player: player }
+            (merge player-stats { total-rewards: (+ (get total-rewards player-stats) reward-amount) })
+          )
+          (ok true)
+        )
+        previous-result
+      )
+    )
+    previous-result
+  )
+)
