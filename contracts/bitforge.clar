@@ -297,3 +297,107 @@
     (ok token-id)
   )
 )
+
+;; Transfer gaming asset to another player
+(define-public (transfer-game-asset
+    (token-id uint)
+    (recipient principal)
+  )
+  (begin
+    ;; Verify ownership and authorization
+    (asserts!
+      (is-eq tx-sender
+        (unwrap! (nft-get-owner? bitforge-asset token-id) ERR-INVALID-GAME-ASSET)
+      )
+      ERR-NOT-AUTHORIZED
+    )
+    (asserts! (is-valid-principal recipient) ERR-INVALID-INPUT)
+    ;; Execute transfer
+    (nft-transfer? bitforge-asset token-id tx-sender recipient)
+  )
+)
+
+;; AVATAR SYSTEM FUNCTIONS
+
+;; Create new player avatar
+(define-public (create-avatar
+    (name (string-ascii 50))
+    (world-access (list 10 uint))
+  )
+  (let ((avatar-id (+ (var-get total-avatars) u1)))
+    ;; Validation checks
+    (asserts! (is-valid-name name) ERR-INVALID-NAME)
+    (asserts! (is-valid-world-access world-access) ERR-INVALID-WORLD-ACCESS)
+    (asserts! (is-none (map-get? leaderboard { player: tx-sender }))
+      ERR-ALREADY-REGISTERED
+    )
+    ;; Create avatar NFT
+    (try! (nft-mint? bitforge-avatar avatar-id tx-sender))
+    ;; Initialize avatar metadata
+    (map-set avatar-metadata { avatar-id: avatar-id } {
+      name: name,
+      level: u1,
+      experience: u0,
+      achievements: (list),
+      equipped-assets: (list),
+      world-access: world-access,
+    })
+    ;; Register player in leaderboard
+    (map-set leaderboard { player: tx-sender } {
+      score: u0,
+      games-played: u0,
+      total-rewards: u0,
+      avatar-id: avatar-id,
+      rank: u0,
+      achievements: (list),
+    })
+    (var-set total-avatars avatar-id)
+    (ok avatar-id)
+  )
+)
+
+;; Update avatar experience and handle level progression
+(define-public (update-avatar-experience
+    (avatar-id uint)
+    (experience-gained uint)
+  )
+  (let (
+      (current-metadata (unwrap! (get-avatar-details avatar-id) ERR-INVALID-AVATAR))
+      (avatar-owner (unwrap! (nft-get-owner? bitforge-avatar avatar-id) ERR-INVALID-AVATAR))
+      (current-level (get level current-metadata))
+      (current-experience (get experience current-metadata))
+    )
+    ;; Authorization and validation
+    (asserts! (is-protocol-admin tx-sender) ERR-NOT-AUTHORIZED)
+    (asserts! (<= avatar-id (var-get total-avatars)) ERR-INVALID-AVATAR)
+    (asserts! (> experience-gained u0) ERR-INVALID-INPUT)
+    (asserts! (< current-level MAX-LEVEL) ERR-MAX-LEVEL-REACHED)
+    (asserts!
+      (validate-experience-gain current-experience experience-gained
+        current-level
+      )
+      ERR-MAX-EXPERIENCE-REACHED
+    )
+    ;; Calculate new experience and level
+    (let (
+        (new-experience (+ current-experience experience-gained))
+        (should-level-up (can-level-up current-experience experience-gained current-level))
+        (new-level (if should-level-up
+          (+ current-level u1)
+          current-level
+        ))
+      )
+      (asserts! (or (not should-level-up) (<= new-level MAX-LEVEL))
+        ERR-MAX-LEVEL-REACHED
+      )
+      ;; Update avatar metadata
+      (map-set avatar-metadata { avatar-id: avatar-id }
+        (merge current-metadata {
+          experience: new-experience,
+          level: new-level,
+        })
+      )
+      (ok should-level-up)
+    )
+  )
+)
