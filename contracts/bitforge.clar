@@ -497,3 +497,54 @@
     previous-result
   )
 )
+
+;; HELPER & CALCULATION FUNCTIONS
+
+;; Calculate reward amount based on player score
+(define-private (calculate-reward (score uint))
+  (if (and (> score u100) (<= score u10000))
+    (* score u10)
+    u0
+  )
+)
+
+;; Calculate experience required for level advancement
+(define-private (calculate-level-up-experience (current-level uint))
+  (* BASE-EXPERIENCE-REQUIRED current-level)
+)
+
+;; Validate experience gain within limits
+(define-private (validate-experience-gain
+    (current-experience uint)
+    (gained-experience uint)
+    (current-level uint)
+  )
+  (let (
+      (max-allowed-gain (calculate-level-up-experience current-level))
+      (new-total-experience (+ current-experience gained-experience))
+    )
+    (and
+      (<= gained-experience max-allowed-gain)
+      (<= new-total-experience (* MAX-EXPERIENCE-PER-LEVEL current-level))
+    )
+  )
+)
+
+;; Check if avatar can level up with gained experience
+(define-private (can-level-up
+    (current-experience uint)
+    (gained-experience uint)
+    (current-level uint)
+  )
+  (let (
+      (new-total-experience (+ current-experience gained-experience))
+      (required-experience (calculate-level-up-experience current-level))
+    )
+    (>= new-total-experience required-experience)
+  )
+)
+
+;; PROTOCOL INITIALIZATION
+
+;; Initialize deployer as protocol administrator
+(map-set protocol-admin-whitelist tx-sender true)
