@@ -99,3 +99,108 @@
     total-rewards: uint,
   }
 )
+
+;; Player Leaderboard & Statistics
+(define-map leaderboard
+  { player: principal }
+  {
+    score: uint,
+    games-played: uint,
+    total-rewards: uint,
+    avatar-id: uint,
+    rank: uint,
+    achievements: (list 20 (string-ascii 50)),
+  }
+)
+
+;; VALIDATION FUNCTIONS
+
+;; Validate asset/avatar names
+(define-private (is-valid-name (name (string-ascii 50)))
+  (and
+    (>= (len name) u1)
+    (<= (len name) u50)
+    (not (is-eq name ""))
+  )
+)
+
+;; Validate descriptions for assets/worlds
+(define-private (is-valid-description (description (string-ascii 200)))
+  (and
+    (>= (len description) u1)
+    (<= (len description) u200)
+    (not (is-eq description ""))
+  )
+)
+
+;; Validate asset rarity levels
+(define-private (is-valid-rarity (rarity (string-ascii 20)))
+  (or
+    (is-eq rarity "common")
+    (is-eq rarity "uncommon")
+    (is-eq rarity "rare")
+    (is-eq rarity "epic")
+    (is-eq rarity "legendary")
+  )
+)
+
+;; Validate power level range
+(define-private (is-valid-power-level (power uint))
+  (and (>= power u1) (<= power u1000))
+)
+
+;; Validate asset attributes
+(define-private (is-valid-attributes (attributes (list 10 (string-ascii 20))))
+  (and
+    (>= (len attributes) u1)
+    (<= (len attributes) u10)
+  )
+)
+
+;; Validate world access permissions
+(define-private (is-valid-world-access (worlds (list 10 uint)))
+  (and
+    (>= (len worlds) u1)
+    (<= (len worlds) u10)
+    (fold check-world-exists worlds true)
+  )
+)
+
+;; Helper function to verify world existence
+(define-private (check-world-exists
+    (world-id uint)
+    (valid bool)
+  )
+  (and valid (is-some (get-world-details world-id)))
+)
+
+;; UTILITY FUNCTIONS
+
+;; Check if caller is protocol administrator
+(define-read-only (is-protocol-admin (sender principal))
+  (default-to false (map-get? protocol-admin-whitelist sender))
+)
+
+;; Validate principal address
+(define-read-only (is-valid-principal (input principal))
+  (and
+    (not (is-eq input tx-sender))
+    (not (is-eq input (as-contract tx-sender)))
+  )
+)
+
+;; Enhanced principal security validation
+(define-read-only (is-safe-principal (input principal))
+  (and
+    (is-valid-principal input)
+    (or
+      (is-protocol-admin input)
+      (is-some (map-get? leaderboard { player: input }))
+    )
+  )
+)
+
+;; Retrieve world information
+(define-read-only (get-world-details (world-id uint))
+  (map-get? game-worlds { world-id: world-id })
+)
